@@ -33,7 +33,7 @@ var credsFile string
 var accessTokensDir string
 var googleConfig *oauth2.Config
 
-var RGBPalette [256 * 2]*Color
+var RGBPalette [256*2 - 1]*Color
 
 var rootCmd = &cobra.Command{
 	Use: "main",
@@ -132,9 +132,13 @@ func initColors() {
 }
 
 func alertize(summary string, dur float64, count uint64) string {
-	index := 0
-	if dur < 2.0 {
-		index = int(float64(len(RGBPalette)) * dur / 2.0)
+	index := len(RGBPalette) - 1
+	hoursAlert := 4.0
+	if dur < hoursAlert {
+		index = int(float64(len(RGBPalette)) * (dur / hoursAlert))
+		if index >= len(RGBPalette) {
+			index = len(RGBPalette) - 1
+		}
 	}
 	color := RGBPalette[index].HTML()
 	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, summary, color, dur, count)
