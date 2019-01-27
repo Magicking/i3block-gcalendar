@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"sort"
 	"syscall"
 	"time"
 
@@ -32,6 +33,8 @@ var credsFile string
 var accessTokensDir string
 var googleConfig *oauth2.Config
 
+var RGBPalette [256 * 2]*Color
+
 var rootCmd = &cobra.Command{
 	Use: "main",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -55,15 +58,86 @@ var rootCmd = &cobra.Command{
 		if len(events) == 0 {
 			fmt.Println("No upcoming events found.")
 		} else {
+			sort.Slice(events, func(i, j int) bool {
+				t1, err := time.Parse(time.RFC3339, events[i].Start.DateTime)
+				if err != nil {
+					return false
+				}
+				t2, err := time.Parse(time.RFC3339, events[j].Start.DateTime)
+				if err != nil {
+					return true
+				}
+				return t1.Before(t2)
+			})
+			timeLimit := time.Now().Add(24 * time.Hour)
+			var firstEvent *calendar.Event
+			var count uint64
 			for _, item := range events {
 				date := item.Start.DateTime
 				if date == "" {
-					date = item.Start.Date
+					continue
 				}
-				fmt.Printf("%v (%v)\n", item.Summary, date)
+				t, err := time.Parse(time.RFC3339, date)
+				if err != nil {
+					log.Infof("Could not parse date for %q, got %q: %v", item.Summary, date, err)
+					continue
+				}
+				if t.After(timeLimit) {
+					break
+				}
+				if firstEvent == nil {
+					firstEvent = item
+				}
+				count++
 			}
+			if firstEvent == nil {
+				fmt.Println("No future event")
+				os.Exit(0)
+			}
+			t, err := time.Parse(time.RFC3339, firstEvent.Start.DateTime)
+			if err != nil {
+				log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
+			}
+			dur := t.Sub(time.Now()).Hours()
+			fmt.Println(alertize(firstEvent.Summary, dur, count))
 		}
 	},
+}
+
+type Color struct {
+	R uint8
+	G uint8
+	B uint8
+}
+
+func (c *Color) HTML() string {
+	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
+}
+
+// https://stackoverflow.com/a/4161398 https://stackoverflow.com/questions/4161369/html-color-codes-red-to-yellow-to-green
+func initColors() {
+	red := uint8(255) //i.e. FF
+	green := uint8(0)
+	var i int
+	for ; green < 254; green++ {
+		RGBPalette[i] = &Color{R: red, G: green, B: 0}
+		i++
+	}
+	RGBPalette[i] = &Color{R: red, G: green, B: 0}
+	for i++; red > 0; red-- {
+		RGBPalette[i] = &Color{R: red, G: green, B: 0}
+		i++
+	}
+	RGBPalette[i] = &Color{R: red, G: green, B: 0}
+}
+
+func alertize(summary string, dur float64, count uint64) string {
+	index := 0
+	if dur < 2.0 {
+		index = int(float64(len(RGBPalette)) * dur / 2.0)
+	}
+	color := RGBPalette[index].HTML()
+	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, summary, color, dur, count)
 }
 
 func getNextCalendarItems(tokenPath string) ([]*calendar.Event, error) {
@@ -78,11 +152,10 @@ func getNextCalendarItems(tokenPath string) ([]*calendar.Event, error) {
 
 	t := time.Now().Format(time.RFC3339)
 	events, err := srv.Events.List("primary").ShowDeleted(false).
-		SingleEvents(true).TimeMin(t).MaxResults(10).OrderBy("startTime").Do()
+		SingleEvents(true).TimeMin(t).MaxResults(30).OrderBy("startTime").Do()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to retrieve next ten of the user's events: %v", err)
 	}
-	fmt.Println("Upcoming events:")
 	return events.Items, nil
 }
 
@@ -244,6 +317,7 @@ func main() {
 		done <- true
 	}()
 
+	initColors()
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path (default is $XDG_CONFIG_HOME/i3block-gcalendar/config)")
