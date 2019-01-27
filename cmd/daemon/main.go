@@ -69,10 +69,24 @@ var rootCmd = &cobra.Command{
 				}
 				return t1.Before(t2)
 			})
-			timeLimit := time.Now().Add(24 * time.Hour)
+			timeLimit := time.Now().Add(48 * time.Hour)
 			var firstEvent *calendar.Event
 			var count uint64
+			var fDeclined bool
 			for _, item := range events {
+				for _, e := range item.Attendees {
+					if !e.Self {
+						continue
+					}
+					if e.ResponseStatus == "declined" {
+						fDeclined = true
+						break
+					}
+				}
+				if fDeclined {
+					fDeclined = false
+					continue
+				}
 				date := item.Start.DateTime
 				if date == "" {
 					continue
@@ -99,7 +113,7 @@ var rootCmd = &cobra.Command{
 				log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
 			}
 			dur := t.Sub(time.Now()).Hours()
-			fmt.Println(alertize(firstEvent.Summary, dur, count))
+			fmt.Println(alertize(firstEvent, dur, count))
 		}
 	},
 }
@@ -131,7 +145,7 @@ func initColors() {
 	RGBPalette[i] = &Color{R: red, G: green, B: 0}
 }
 
-func alertize(summary string, dur float64, count uint64) string {
+func alertize(event *calendar.Event, dur float64, count uint64) string {
 	index := len(RGBPalette) - 1
 	hoursAlert := 4.0
 	if dur < hoursAlert {
@@ -141,7 +155,7 @@ func alertize(summary string, dur float64, count uint64) string {
 		}
 	}
 	color := RGBPalette[index].HTML()
-	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, summary, color, dur, count)
+	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, event.Summary, color, dur, count)
 }
 
 func getNextCalendarItems(tokenPath string) ([]*calendar.Event, error) {
