@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -148,6 +149,9 @@ func initColors() {
 func alertize(event *calendar.Event, dur float64, count uint64) string {
 	index := len(RGBPalette) - 1
 	hoursAlert := 4.0
+	if dur < 0 {
+		dur *= -1
+	}
 	if dur < hoursAlert {
 		index = int(float64(len(RGBPalette)) * (dur / hoursAlert))
 		if index >= len(RGBPalette) {
@@ -155,7 +159,7 @@ func alertize(event *calendar.Event, dur float64, count uint64) string {
 		}
 	}
 	color := RGBPalette[index].HTML()
-	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, event.Summary, color, dur, count)
+	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, html.EscapeString(event.Summary), color, dur, count)
 }
 
 func getNextCalendarItems(tokenPath string) ([]*calendar.Event, error) {
