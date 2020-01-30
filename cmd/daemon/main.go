@@ -159,7 +159,12 @@ func alertize(event *calendar.Event, dur float64, count uint64) string {
 		}
 	}
 	color := RGBPalette[index].HTML()
-	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">%0.2fh</span> | %v`, html.EscapeString(event.Summary), color, dur, count)
+	format := "%0.2fh"
+	if dur < 1.0 {
+		format = "%0.0fm"
+		dur *= 60
+	}
+	return fmt.Sprintf(`<span foreground="white">%v</span> | <span foreground="%s">`+format+`</span> | %v`, html.EscapeString(event.Summary), color, dur, count)
 }
 
 func getNextCalendarItems(tokenPath string) ([]*calendar.Event, error) {
