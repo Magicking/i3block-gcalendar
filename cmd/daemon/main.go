@@ -32,90 +32,131 @@ var cfgFile string
 var configDir string
 var credsFile string
 var accessTokensDir string
+var demoMode bool
 var googleConfig *oauth2.Config
 
 var RGBPalette [256*2 - 1]*Color
 
+func displayEvent(events []*calendar.Event) {
+	if len(events) == 0 {
+		fmt.Println("No upcoming events found.")
+		return
+	}
+	sort.Slice(events, func(i, j int) bool {
+		t1, err := time.Parse(time.RFC3339, events[i].Start.DateTime)
+		if err != nil {
+			return false
+		}
+		t2, err := time.Parse(time.RFC3339, events[j].Start.DateTime)
+		if err != nil {
+			return true
+		}
+		return t1.Before(t2)
+	})
+	timeLimit := time.Now().Add(48 * time.Hour)
+	var firstEvent *calendar.Event
+	var count uint64
+	var fDeclined bool
+	for _, item := range events {
+		for _, e := range item.Attendees {
+			if !e.Self {
+				continue
+			}
+			if e.ResponseStatus == "declined" {
+				fDeclined = true
+				break
+			}
+		}
+		if fDeclined {
+			fDeclined = false
+			continue
+		}
+		date := item.Start.DateTime
+		if date == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, date)
+		if err != nil {
+			log.Infof("Could not parse date for %q, got %q: %v", item.Summary, date, err)
+			continue
+		}
+		if t.After(timeLimit) {
+			break
+		}
+		if firstEvent == nil {
+			firstEvent = item
+		}
+		count++
+	}
+	if firstEvent == nil {
+		fmt.Println("No future event")
+		os.Exit(0)
+	}
+	t, err := time.Parse(time.RFC3339, firstEvent.Start.DateTime)
+	if err != nil {
+		log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
+	}
+	dur := t.Sub(time.Now()).Hours()
+	fmt.Println(alertize(firstEvent, dur, count))
+}
+
+func getGCalendarToken() (events []*calendar.Event) {
+	settings := viper.AllSettings()
+	authTokens, ok := settings["auth-tokens"].([]interface{})
+	if !ok {
+		log.Fatalf("auth-tokens value is not a string list, got %q", settings["auth-tokens"])
+	}
+	for _, tokenPathIf := range authTokens {
+		tokenPath, ok := tokenPathIf.(string)
+		if !ok {
+			log.Fatalf("auth-tokens value is not a string, got %q", tokenPathIf)
+		}
+		eventsRet, err := getNextCalendarItems(tokenPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		events = append(events, eventsRet...)
+	}
+	return
+}
+
 var rootCmd = &cobra.Command{
 	Use: "main",
 	Run: func(cmd *cobra.Command, args []string) {
-		settings := viper.AllSettings()
-		authTokens, ok := settings["auth-tokens"].([]interface{})
-		if !ok {
-			log.Fatalf("auth-tokens value is not a string list, got %q", settings["auth-tokens"])
+		// Demo mode events
+		events := []*calendar.Event{
+			&calendar.Event{
+				Summary: "Test event",
+				Start: &calendar.EventDateTime{
+					DateTime: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
+				},
+				End: &calendar.EventDateTime{
+					DateTime: time.Now().Add(2 * time.Hour).Format(time.RFC3339),
+				},
+			},
+			&calendar.Event{
+				Summary: "Test event2",
+				Start: &calendar.EventDateTime{
+					DateTime: time.Now().Add(3 * time.Hour).Format(time.RFC3339),
+				},
+				End: &calendar.EventDateTime{
+					DateTime: time.Now().Add(4 * time.Hour).Format(time.RFC3339),
+				},
+			},
+			&calendar.Event{
+				Summary: "Test event3",
+				Start: &calendar.EventDateTime{
+					DateTime: time.Now().Add(5 * time.Hour).Format(time.RFC3339),
+				},
+				End: &calendar.EventDateTime{
+					DateTime: time.Now().Add(6 * time.Hour).Format(time.RFC3339),
+				},
+			},
 		}
-		var events []*calendar.Event
-		for _, tokenPathIf := range authTokens {
-			tokenPath, ok := tokenPathIf.(string)
-			if !ok {
-				log.Fatalf("auth-tokens value is not a string, got %q", tokenPathIf)
-			}
-			eventsRet, err := getNextCalendarItems(tokenPath)
-			if err != nil {
-				log.Fatal(err)
-			}
-			events = append(events, eventsRet...)
+		if !demoMode {
+			events = getGCalendarToken()
 		}
-		if len(events) == 0 {
-			fmt.Println("No upcoming events found.")
-		} else {
-			sort.Slice(events, func(i, j int) bool {
-				t1, err := time.Parse(time.RFC3339, events[i].Start.DateTime)
-				if err != nil {
-					return false
-				}
-				t2, err := time.Parse(time.RFC3339, events[j].Start.DateTime)
-				if err != nil {
-					return true
-				}
-				return t1.Before(t2)
-			})
-			timeLimit := time.Now().Add(48 * time.Hour)
-			var firstEvent *calendar.Event
-			var count uint64
-			var fDeclined bool
-			for _, item := range events {
-				for _, e := range item.Attendees {
-					if !e.Self {
-						continue
-					}
-					if e.ResponseStatus == "declined" {
-						fDeclined = true
-						break
-					}
-				}
-				if fDeclined {
-					fDeclined = false
-					continue
-				}
-				date := item.Start.DateTime
-				if date == "" {
-					continue
-				}
-				t, err := time.Parse(time.RFC3339, date)
-				if err != nil {
-					log.Infof("Could not parse date for %q, got %q: %v", item.Summary, date, err)
-					continue
-				}
-				if t.After(timeLimit) {
-					break
-				}
-				if firstEvent == nil {
-					firstEvent = item
-				}
-				count++
-			}
-			if firstEvent == nil {
-				fmt.Println("No future event")
-				os.Exit(0)
-			}
-			t, err := time.Parse(time.RFC3339, firstEvent.Start.DateTime)
-			if err != nil {
-				log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
-			}
-			dur := t.Sub(time.Now()).Hours()
-			fmt.Println(alertize(firstEvent, dur, count))
-		}
+		displayEvent(events)
 	},
 }
 
@@ -214,7 +255,7 @@ func saveToken(token *oauth2.Token) {
 	} else if !ls.IsDir() {
 		log.Fatalf("config path is not a directory, was %q", accessTokensDir)
 	}
-	u := uuid.Must(uuid.NewV4())
+	u := uuid.NewV4()
 	path := path.Join(accessTokensDir, u.String())
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
@@ -350,6 +391,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path (default is $XDG_CONFIG_HOME/i3block-gcalendar/config)")
 	rootCmd.PersistentFlags().StringVar(&accessTokensDir, "access-tokens", "", "access-tokens directory path (default is $XDG_CONFIG_HOME/i3block-gcalendar/access-tokens)")
 	rootCmd.PersistentFlags().StringVar(&credsFile, "creds", "credentials.json", "credentials file path (default is CONFIG/credentials.json)")
+	rootCmd.PersistentFlags().BoolVar(&demoMode, "demo", false, "Run in demonstration mode, no outbound connection are made nor tokens are used.")
 	rootCmd.AddCommand(registerCmd)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
