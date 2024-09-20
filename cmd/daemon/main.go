@@ -33,11 +33,22 @@ var configDir string
 var credsFile string
 var accessTokensDir string
 var demoMode bool
+var displayFunc func(*calendar.Event) bool
 var googleConfig *oauth2.Config
 
 var RGBPalette [256*2 - 1]*Color
 
-func displayEvent(events []*calendar.Event) {
+type calDisplayEvent struct {
+	Sum   string
+	Dur   time.Duration
+	Count uint
+}
+
+func displayEvent(e *calDisplayEvent) bool {
+	fmt.Println(alertize(e.Sum, e.Dur, e.Count))
+}
+
+func sortEvent(events []*calendar.Event) {
 	if len(events) == 0 {
 		fmt.Println("No upcoming events found.")
 		return
@@ -97,7 +108,13 @@ func displayEvent(events []*calendar.Event) {
 		log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
 	}
 	dur := t.Sub(time.Now()).Hours()
-	fmt.Println(alertize(firstEvent, dur, count))
+	displayEvent(&calDisplayEvent{
+		Sum:   e.Summary,
+		Dur:   dur,
+		Count: count,
+	})
+	//fmt.Println(alertize(firstEvent, dur, count))
+
 }
 
 func getGCalendarToken() (events []*calendar.Event) {
@@ -156,7 +173,7 @@ var rootCmd = &cobra.Command{
 		if !demoMode {
 			events = getGCalendarToken()
 		}
-		displayEvent(events)
+		sortEvent(events)
 	},
 }
 
@@ -359,6 +376,9 @@ func initConfig() {
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
+
+	// if display mode set to waybar/JSON, output JSON
+	displayFunc = displayEvent
 }
 
 // Register calendar through CLI
@@ -392,6 +412,11 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&accessTokensDir, "access-tokens", "", "access-tokens directory path (default is $XDG_CONFIG_HOME/i3block-gcalendar/access-tokens)")
 	rootCmd.PersistentFlags().StringVar(&credsFile, "creds", "credentials.json", "credentials file path (default is CONFIG/credentials.json)")
 	rootCmd.PersistentFlags().BoolVar(&demoMode, "demo", false, "Run in demonstration mode, no outbound connection are made nor tokens are used.")
+	var displayMode bool
+	rootCmd.PersistentFlags().BoolVar(&displayMode, "displayMode", false, "JSON output (default to HTML)")
+	if displayMode {
+		displayFunc = displayEvent
+	}
 	rootCmd.AddCommand(registerCmd)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
