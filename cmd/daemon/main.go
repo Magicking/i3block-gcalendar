@@ -37,9 +37,13 @@ var googleConfig *oauth2.Config
 
 var RGBPalette [256*2 - 1]*Color
 
-func displayEvent(events []*calendar.Event) {
+func displayEvent(events []*calendar.Event, tokenFailed bool) {
+	warning := ""
+	if tokenFailed {
+		warning = "⚠️ "
+	}
 	if len(events) == 0 {
-		fmt.Println("No upcoming events found.")
+		fmt.Println(warning + "No upcoming events found.")
 		return
 	}
 	sort.Slice(events, func(i, j int) bool {
@@ -89,7 +93,7 @@ func displayEvent(events []*calendar.Event) {
 		count++
 	}
 	if firstEvent == nil {
-		fmt.Println("No future event")
+		fmt.Println(warning + "No future event")
 		os.Exit(0)
 	}
 	t, err := time.Parse(time.RFC3339, firstEvent.Start.DateTime)
@@ -97,10 +101,10 @@ func displayEvent(events []*calendar.Event) {
 		log.Fatalf("Could not parse date for %q, %v", firstEvent.Summary, err)
 	}
 	dur := t.Sub(time.Now()).Hours()
-	fmt.Println(alertize(firstEvent, dur, count))
+	fmt.Println(warning + alertize(firstEvent, dur, count))
 }
 
-func getGCalendarToken() (events []*calendar.Event) {
+func getGCalendarToken() (events []*calendar.Event, tokenFailed bool) {
 	settings := viper.AllSettings()
 	authTokens, ok := settings["auth-tokens"].([]interface{})
 	if !ok {
@@ -113,7 +117,9 @@ func getGCalendarToken() (events []*calendar.Event) {
 		}
 		eventsRet, err := getNextCalendarItems(tokenPath)
 		if err != nil {
-			log.Fatal(err)
+			log.Warnf("Unable to get calendar items for token %q: %v", tokenPath, err)
+			tokenFailed = true
+			continue
 		}
 		events = append(events, eventsRet...)
 	}
@@ -153,10 +159,11 @@ var rootCmd = &cobra.Command{
 				},
 			},
 		}
+		tokenFailed := false
 		if !demoMode {
-			events = getGCalendarToken()
+			events, tokenFailed = getGCalendarToken()
 		}
-		displayEvent(events)
+		displayEvent(events, tokenFailed)
 	},
 }
 
